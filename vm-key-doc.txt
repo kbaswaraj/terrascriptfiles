@@ -1,0 +1,350 @@
+Setting up Azure
+Step 1: Create a service principal:
+
+You can create a service principle in two ways. Either using the Azure CLI or using the portal.
+Option 1: Creating using Azure CLI
+1.	Go to https://docs.microsoft.com/en-us/cli/azure/install-azure-cli
+2.	Download and install the installer file based on your operating system
+3.	Open the command prompt or terminal and type az login --use-device-code
+ 
+
+4.	Navigate to the url https://microsoft.com/devicelogin and enter the code which is shown in the console.
+5.	After successful authentication, Close the browser window and come back to the command prompt.
+6.	If you get the list of active subscriptions like below image, Authentication got successful.
+ 
+7.	To create the service principal, Run the below command with your service principal name and subscription id.
+
+#az ad sp create-for-rbac -n "<serviceprincipal-name>" --role="Contributor" --scopes="/subscriptions/<subscription-id>
+
+ 
+
+This would create a service principal using the Azure CLI.
+
+Option 2: Creating service principal using Azure portal:
+1.	Goto https://portal.azure.com/
+2.	Search for “Active Directory”.
+3.	Navigate to “App registration” in the left side bar menu.
+4.	Click on “New registration”
+5.	Give the display name for the service principal.
+6.	Click on register.
+ 
+
+This would create a service principal, Note down the client id and tenant id.
+
+Now, Goto “Certificates & secrets” in the left hand side menu and click on new client secret, Enter the description and click on add.
+ 
+
+Note down the Value here as we will be using it while creating our terraform script.
+ 
+Step 2: Download and initialize terraform
+
+1.	Go to https://www.terraform.io/downloads.html
+2.	Download and extract the terraform zip file depending upon the os type.
+3.	Update the terraform directory path in the system path environment.
+4.	Run below commands in sequence.
+
+#terraform --version (To check the terraform version)
+
+Note: If you are using the Azure CLI, You don’t have to follow the above steps as Azure CLI comes preinstalled with terraform. If you want to install terraform on a local pc you follow the above step2.
+Step 3: Creating terraform configuration files to provisioning a linux vms in azure
+Create below 4 files.
+
+1.	“terraform.tfvars”
+
+resource_group_name         = "sk_terraform_rg"
+resource_group_location     = "West Europe"
+virtual_network_name        = "vnet38"
+subnet_name                 = "subnet38"
+public_ip_name              = "publicip38"
+network_security_group_name = "nsg38"
+network_interface_name      = "nic38"
+linux_virtual_machine_name  = "linuxvm38"
+subscription_id = "ab8e394e-1b63-4a20-8caf-ad72b67af795"
+client_id       = "b1c046a3-ee83-490a-826a-731488f834db"
+client_secret   = "~3yi-Y8N2teK..z_g-Q_~y0e9zx2UhNSui"
+tenant_id       = "19b25223-4653-4976-90ab-252b35d5c969"
+
+Update the subscription_id, client_id, client_secret, tenant_id, with the values you got while creating the service principal and client secret.
+
+You can also update the values of other variables such as linux machine name etc..
+
+2.	“variables.tf”
+
+variable "resource_group_name" {
+  type        = string
+  description = "RG name in Azure"
+}
+
+variable "resource_group_location" {
+  type        = string
+  description = "RG location in Azure"
+}
+
+variable "virtual_network_name" {
+  type        = string
+  description = "VNET name in Azure"
+}
+
+variable "subnet_name" {
+  type        = string
+  description = "Subnet name in Azure"
+}
+
+variable "public_ip_name" {
+  type        = string
+  description = "Public IP name in Azure"
+}
+
+variable "network_security_group_name" {
+  type        = string
+  description = "NSG name in Azure"
+}
+
+variable "network_interface_name" {
+  type        = string
+  description = "NIC name in Azure"
+}
+
+variable "linux_virtual_machine_name" {
+  type        = string
+  description = "Linux VM name in Azure"
+}
+
+variable "subscription_id" {
+  type        = string
+  description = "subscription id"
+}
+
+variable "client_id" {
+  type        = string
+  description = "client id"
+}
+
+variable "client_secret" {
+  type        = string
+  description = "client secret"
+}
+
+variable "tenant_id" {
+  type        = string
+  description = "tenant id"
+
+}
+
+3.	“outputs.tf”
+
+output "vm_id" {
+  value = azurerm_linux_virtual_machine.linuxvm.id
+}
+
+output "vm_ip" {
+  value = azurerm_linux_virtual_machine.linuxvm.public_ip_address
+}
+
+output "tls_private_key" {
+  value = tls_private_key.example_ssh.private_key_pem
+}
+
+output "admin_username" {
+  value = azurerm_linux_virtual_machine.linuxvm.admin_username
+}
+
+4.	“main.tf”
+
+provider "azurerm" {
+  subscription_id = var.subscription_id
+  client_id       = var.client_id
+  client_secret   = var.client_secret
+  tenant_id       = var.tenant_id
+
+  features {}
+}
+
+# Create a resource group if it doesn't exist
+resource "azurerm_resource_group" "rg" {
+  name     = var.resource_group_name
+  location = var.resource_group_location
+
+  tags = {
+    environment = "production"
+  }
+}
+
+# Create virtual network
+resource "azurerm_virtual_network" "vnet" {
+  name                = var.virtual_network_name
+  address_space       = ["10.0.0.0/16"]
+  location            = azurerm_resource_group.rg.location
+  resource_group_name = azurerm_resource_group.rg.name
+
+  tags = {
+    environment = "production"
+  }
+}
+
+# Create subnet
+resource "azurerm_subnet" "subnet" {
+  name                 = var.subnet_name
+  resource_group_name  = azurerm_resource_group.rg.name
+  virtual_network_name = azurerm_virtual_network.vnet.name
+  address_prefixes     = ["10.0.1.0/24"]
+}
+
+# Create public IPs
+resource "azurerm_public_ip" "public_ip" {
+  name                = var.public_ip_name
+  location            = azurerm_resource_group.rg.location
+  resource_group_name = azurerm_resource_group.rg.name
+  allocation_method   = "Dynamic"
+
+  tags = {
+    environment = "production"
+  }
+}
+
+# Create Network Security Group and rule
+resource "azurerm_network_security_group" "nsg" {
+  name                = var.network_security_group_name
+  location            = azurerm_resource_group.rg.location
+  resource_group_name = azurerm_resource_group.rg.name
+
+  security_rule {
+    name                       = "SSH"
+    priority                   = 1001
+    direction                  = "Inbound"
+    access                     = "Allow"
+    protocol                   = "Tcp"
+    source_port_range          = "*"
+    destination_port_range     = "22"
+    source_address_prefix      = "*"
+    destination_address_prefix = "*"
+  }
+
+  tags = {
+    environment = "production"
+  }
+}
+
+# Create network interface
+resource "azurerm_network_interface" "nic" {
+  name                = var.network_interface_name
+  location            = azurerm_resource_group.rg.location
+  resource_group_name = azurerm_resource_group.rg.name
+
+  ip_configuration {
+    name                          = "myNicConfiguration"
+    subnet_id                     = azurerm_subnet.subnet.id
+    private_ip_address_allocation = "Dynamic"
+    public_ip_address_id          = azurerm_public_ip.public_ip.id
+  }
+
+  tags = {
+    environment = "production"
+  }
+}
+
+# Connect the security group to the network interface
+resource "azurerm_network_interface_security_group_association" "association" {
+  network_interface_id      = azurerm_network_interface.nic.id
+  network_security_group_id = azurerm_network_security_group.nsg.id
+}
+
+# Generate random text for a unique storage account name
+resource "random_id" "randomId" {
+  keepers = {
+    # Generate a new ID only when a new resource group is defined
+    resource_group = azurerm_resource_group.rg.name
+  }
+
+  byte_length = 8
+}
+
+# Create storage account for boot diagnostics
+resource "azurerm_storage_account" "storage" {
+  name                     = "diag${random_id.randomId.hex}"
+  resource_group_name      = azurerm_resource_group.rg.name
+  location                 = azurerm_resource_group.rg.location
+  account_tier             = "Standard"
+  account_replication_type = "LRS"
+
+  tags = {
+    environment = "production"
+  }
+}
+
+# Create (and display) an SSH key
+resource "tls_private_key" "example_ssh" {
+  algorithm = "RSA"
+  rsa_bits  = 4096
+}
+
+# Create virtual machine
+resource "azurerm_linux_virtual_machine" "linuxvm" {
+  name                  = var.linux_virtual_machine_name
+  location              = azurerm_resource_group.rg.location
+  resource_group_name   = azurerm_resource_group.rg.name
+  network_interface_ids = [azurerm_network_interface.nic.id]
+  size                  = "Standard_DS1_v2"
+
+  os_disk {
+    name                 = "myOsDisk"
+    caching              = "ReadWrite"
+    storage_account_type = "Premium_LRS"
+  }
+
+  source_image_reference {
+    publisher = "Canonical"
+    offer     = "UbuntuServer"
+    sku       = "18.04-LTS"
+    version   = "latest"
+  }
+
+  computer_name                   = "myvm"
+  admin_username                  = "azureuser"
+  disable_password_authentication = true
+
+  admin_ssh_key {
+    username   = "azureuser"
+    public_key = tls_private_key.example_ssh.public_key_openssh
+  }
+
+  boot_diagnostics {
+    storage_account_uri = azurerm_storage_account.storage.primary_blob_endpoint
+  }
+
+  tags = {
+    environment = "production"
+  }
+}
+
+resource "local_file" "cloud_pem" {
+  filename = "${path.module}/privatekey.pem"
+  content  = tls_private_key.example_ssh.private_key_pem
+}
+
+Update the client_id with the app_id which you got in the above output. Similarly, Update client_secret and tenant_id with password and tenant values respectively. 
+
+Get the subscription id from the azure portal and update it in the below file as well.
+
+Step 4: Execution:
+Navigate to the directory where you have placed all the files and run below commands in sequence to provision the infrastructure in azure
+
+#terraform init (initializing terraform)
+#terraform validate (validate the code)
+#terraform plan (performs dry run before provisioning)
+#terraform apply (provision the infrastructure on azure)
+
+After running the above commands vms is deployed successfully and one pem file with name “privatekey.pem” is generated in the same directory.
+
+Step 5: Accessing the VMS
+Using the Azure CLI
+
+1.	First, Change the permissions of the private key file to make it read only using the below command.
+#chmod 400 privatekey.pem
+
+2.	Run the below command to access the vms using the SSH and enter “yes” when prompted
+#ssh -i privatekey.pem azureuser@publicip
+	
+	Note: You will get the public ip of the vms after running the terraform apply command
+ 
+You would be connected to the linux vms which you have just created.
